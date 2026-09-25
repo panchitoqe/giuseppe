@@ -6,8 +6,8 @@ import { createClient } from "@/lib/supabase";
 
 type DeliveryStatus = "Pendiente" | "Entregado";
 type PaymentStatus = "Pendiente" | "Pagado";
-type Order = { id: string; customer: string; product: string; quantity: number; total: number; deliveryStatus: DeliveryStatus; paymentStatus: PaymentStatus; destination: string; date: string };
-type SupabaseOrder = { order_code: string; customer_name: string; product_name: string; quantity: number; total: number; delivery_status: "pending" | "delivered"; payment_status: "pending" | "paid"; destination: string; created_at: string };
+type Order = { id: string; customer: string; product: string; quantity: number; total: number; deliveryStatus: DeliveryStatus; paymentStatus: PaymentStatus; deliveryCost: number; deliveryPaymentStatus: PaymentStatus; destination: string; date: string };
+type SupabaseOrder = { order_code: string; customer_name: string; product_name: string; quantity: number; total: number; delivery_status: "pending" | "delivered"; payment_status: "pending" | "paid"; delivery_cost: number; delivery_payment_status: "pending" | "paid"; destination: string; created_at: string };
 const money = new Intl.NumberFormat("es-PE", { style: "currency", currency: "PEN" });
 const formatOrderDate = (date: string) => new Intl.DateTimeFormat("es-PE", { dateStyle: "short", timeStyle: "short" }).format(new Date(date));
 
@@ -24,6 +24,7 @@ export default function Home() {
   const [productMode, setProductMode] = useState<"catalog" | "custom">("catalog");
   const [destination, setDestination] = useState<"arequipa" | "province">("arequipa");
   const [delivery, setDelivery] = useState("Delivery");
+  const [deliveryPaymentStatus, setDeliveryPaymentStatus] = useState<PaymentStatus>("Pendiente");
   const [notice, setNotice] = useState("");
   useEffect(() => {
     if (!supabase) return;
@@ -40,9 +41,9 @@ export default function Home() {
   }, [supabase]);
   useEffect(() => {
     if (!supabase || !authenticated) return;
-    supabase.from("orders").select("order_code, customer_name, product_name, quantity, total, delivery_status, payment_status, destination, created_at").order("created_at", { ascending: false }).then(({ data, error }) => {
+    supabase.from("orders").select("order_code, customer_name, product_name, quantity, total, delivery_status, payment_status, delivery_cost, delivery_payment_status, destination, created_at").order("created_at", { ascending: false }).then(({ data, error }) => {
       if (error || !data) return;
-      setOrders((data as SupabaseOrder[]).map((order) => ({ id: order.order_code, customer: order.customer_name, product: order.product_name, quantity: order.quantity, total: Number(order.total), deliveryStatus: order.delivery_status === "delivered" ? "Entregado" : "Pendiente", paymentStatus: order.payment_status === "paid" ? "Pagado" : "Pendiente", destination: order.destination, date: formatOrderDate(order.created_at) })));
+      setOrders((data as SupabaseOrder[]).map((order) => ({ id: order.order_code, customer: order.customer_name, product: order.product_name, quantity: order.quantity, total: Number(order.total), deliveryStatus: order.delivery_status === "delivered" ? "Entregado" : "Pendiente", paymentStatus: order.payment_status === "paid" ? "Pagado" : "Pendiente", deliveryCost: Number(order.delivery_cost), deliveryPaymentStatus: order.delivery_payment_status === "paid" ? "Pagado" : "Pendiente", destination: order.destination, date: formatOrderDate(order.created_at) })));
     });
   }, [authenticated, supabase]);
   const filteredOrders = useMemo(() => orders.filter((order) => `${order.customer} ${order.product} ${order.id}`.toLowerCase().includes(search.toLowerCase())), [orders, search]);
@@ -57,16 +58,20 @@ export default function Home() {
     const product = String(form.get("product") || "Producto sin nombre");
     const quantity = Number(form.get("quantity") || 1);
     const price = Number(form.get("price") || 0);
-    const newOrder: Order = { id: `#GP-${1050 + orders.length}`, customer: name, product, quantity, total: quantity * price, deliveryStatus: "Pendiente", paymentStatus: "Pendiente", destination: destination === "arequipa" ? "Arequipa" : "Provincia", date: "Ahora" };
+    const deliveryCost = Number(form.get("deliveryCost") || 0);
+    const hasDeliveryCharge = destination === "province" || delivery === "Delivery";
+    const newOrder: Order = { id: `#GP-${1050 + orders.length}`, customer: name, product, quantity, total: quantity * price, deliveryStatus: "Pendiente", paymentStatus: "Pendiente", deliveryCost: hasDeliveryCharge ? deliveryCost : 0, deliveryPaymentStatus: hasDeliveryCharge ? deliveryPaymentStatus : "Pendiente", destination: destination === "arequipa" ? "Arequipa" : "Provincia", date: "Ahora" };
     setOrders((current) => [newOrder, ...current]);
     setNotice("Pedido guardado correctamente");
     event.currentTarget.reset();
     window.setTimeout(() => setNotice(""), 3500);
-    if (supabase) await supabase.from("orders").insert({ order_code: newOrder.id, customer_name: name, dni, product_name: product, quantity, unit_price: price, total: newOrder.total, destination: newOrder.destination, delivery_method: destination === "arequipa" ? delivery : "Envío a provincia", is_custom: productMode === "custom", status: "pending", delivery_status: "pending", payment_status: "pending" });
+    if (supabase) await supabase.from("orders").insert({ order_code: newOrder.id, customer_name: name, dni, product_name: product, quantity, unit_price: price, total: newOrder.total, destination: newOrder.destination, delivery_method: destination === "arequipa" ? delivery : "Envío a provincia", delivery_cost: newOrder.deliveryCost, delivery_payment_status: newOrder.deliveryPaymentStatus === "Pagado" ? "paid" : "pending", is_custom: productMode === "custom", status: "pending", delivery_status: "pending", payment_status: "pending" });
   };
-  const updateOrderStatus = async (orderId: string, kind: "deliveryStatus" | "paymentStatus", value: DeliveryStatus | PaymentStatus) => {
+  const updateOrderStatus = async (orderId: string, kind: "deliveryStatus" | "paymentStatus" | "deliveryPaymentStatus", value: DeliveryStatus | PaymentStatus) => {
     setOrders((current) => current.map((order) => order.id === orderId ? { ...order, [kind]: value } : order));
-    if (supabase) await supabase.from("orders").update({ [kind === "deliveryStatus" ? "delivery_status" : "payment_status"]: value === "Entregado" || value === "Pagado" ? (kind === "deliveryStatus" ? "delivered" : "paid") : "pending" }).eq("order_code", orderId);
+    const field = kind === "deliveryStatus" ? "delivery_status" : kind === "paymentStatus" ? "payment_status" : "delivery_payment_status";
+    const statusValue = value === "Entregado" ? "delivered" : value === "Pagado" ? "paid" : "pending";
+    if (supabase) await supabase.from("orders").update({ [field]: statusValue }).eq("order_code", orderId);
   };
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -100,7 +105,7 @@ export default function Home() {
           <form className="order-form" onSubmit={handleSubmit}>
             <div className="form-section"><div className="section-number">01</div><div className="form-section-content"><div className="form-title"><h3>Datos del cliente</h3><span>Identifica a quién pertenece este pedido</span></div><div className="field-grid"><label>Nombre y apellido <input name="name" placeholder="Ej. Valeria Mendoza" required /></label><label>DNI <input name="dni" inputMode="numeric" placeholder="00000000" maxLength={8} required /></label></div></div></div>
             <div className="form-section"><div className="section-number">02</div><div className="form-section-content"><div className="form-title"><h3>Producto y cantidad</h3><span>Elige del catálogo o crea una línea especial</span></div><div className="segmented"><button type="button" className={productMode === "catalog" ? "selected" : ""} onClick={() => setProductMode("catalog")}><Package size={15} />Del catálogo</button><button type="button" className={productMode === "custom" ? "selected custom-selected" : ""} onClick={() => setProductMode("custom")}><Sparkles size={15} />Personalizado</button></div><div className="field-grid product-fields"><label>Nombre del producto <input name="product" placeholder={productMode === "custom" ? "Ej. Box de bienvenida" : "Ej. Set Aurora"} required /></label><label className="small-field">Cantidad <input name="quantity" type="number" min="1" defaultValue="1" required /></label><label className="small-field">Precio unitario <div className="input-prefix"><span>S/</span><input name="price" type="number" min="0" step="0.01" placeholder="0.00" required /></div></label></div>{productMode === "custom" && <div className="custom-hint"><Sparkles size={15} /> Producto personalizado: este precio no modificará tu catálogo.</div>}</div></div>
-            <div className="form-section"><div className="section-number">03</div><div className="form-section-content"><div className="form-title"><h3>Entrega</h3><span>Define el destino y la forma de envío</span></div><div className="segmented destination"><button type="button" className={destination === "arequipa" ? "selected" : ""} onClick={() => setDestination("arequipa")}><MapPin size={15} />Arequipa</button><button type="button" className={destination === "province" ? "selected" : ""} onClick={() => setDestination("province")}><Send size={15} />Envío a provincia</button></div>{destination === "arequipa" ? <label className="delivery-select">Forma de entrega<div className="select-wrap"><select value={delivery} onChange={(event) => setDelivery(event.target.value)}><option>Delivery</option><option>Recojo en tienda</option><option>Entrega coordinada</option></select><ChevronDown size={16} /></div></label> : <div className="province-note"><Truck size={17} /><div><strong>Envío a provincia</strong><span>Coordinaremos la agencia y el costo con el cliente.</span></div></div>}</div></div>
+            <div className="form-section"><div className="section-number">03</div><div className="form-section-content"><div className="form-title"><h3>Entrega</h3><span>Define el destino y la forma de envío</span></div><div className="segmented destination"><button type="button" className={destination === "arequipa" ? "selected" : ""} onClick={() => setDestination("arequipa")}><MapPin size={15} />Arequipa</button><button type="button" className={destination === "province" ? "selected" : ""} onClick={() => setDestination("province")}><Send size={15} />Envío a provincia</button></div>{destination === "arequipa" ? <label className="delivery-select">Forma de entrega<div className="select-wrap"><select value={delivery} onChange={(event) => setDelivery(event.target.value)}><option>Delivery</option><option>Entrega coordinada</option></select><ChevronDown size={16} /></div></label> : <div className="province-note"><Truck size={17} /><div><strong>Envío a provincia</strong><span>Coordinaremos la agencia y el costo con el cliente.</span></div></div>}{(destination === "province" || delivery === "Delivery") && <div className="field-grid delivery-payment-fields"><label>Costo de entrega <div className="input-prefix"><span>S/</span><input name="deliveryCost" type="number" min="0" step="0.01" placeholder="0.00" required /></div></label><label>Estado del pago de entrega<div className="select-wrap"><select value={deliveryPaymentStatus} onChange={(event) => setDeliveryPaymentStatus(event.target.value as PaymentStatus)}><option>Pendiente</option><option>Pagado</option></select><ChevronDown size={16} /></div></label></div>}</div></div>
             <div className="form-footer"><span><CircleCheck size={16} />Se guardará como pedido pendiente</span><button className="primary-button" type="submit"><Plus size={17} />Guardar pedido</button></div>
           </form>
           <div className="section-heading orders-heading" id="pedidos"><div><span className="eyebrow">HISTORIAL</span><h2>Pedidos recientes</h2></div><button className="export-button"><ArrowDownToLine size={16} />Exportar</button></div>
