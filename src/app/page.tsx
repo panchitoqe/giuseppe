@@ -1,7 +1,7 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
-import { ArrowDownToLine, ChevronDown, CircleCheck, ClipboardList, CreditCard, MapPin, Package, Plus, Search, Send, Settings2, Sparkles, Truck, UserRound } from "lucide-react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { ArrowDownToLine, ChevronDown, CircleCheck, ClipboardList, CreditCard, LogOut, MapPin, Package, Plus, Search, Send, Settings2, Sparkles, Truck, UserRound } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 
 type DeliveryStatus = "Pendiente" | "Entregado";
@@ -10,12 +10,31 @@ type Order = { id: string; customer: string; product: string; quantity: number; 
 const money = new Intl.NumberFormat("es-PE", { style: "currency", currency: "PEN" });
 
 export default function Home() {
+  const [supabase] = useState(createClient);
+  const [sessionReady, setSessionReady] = useState(() => !supabase);
+  const [authenticated, setAuthenticated] = useState(false);
+  const [email, setEmail] = useState("giuseppe@gmail.com");
+  const [password, setPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
+  const [loggingIn, setLoggingIn] = useState(false);
   const [orders, setOrders] = useState<Order[]>([]);
   const [search, setSearch] = useState("");
   const [productMode, setProductMode] = useState<"catalog" | "custom">("catalog");
   const [destination, setDestination] = useState<"arequipa" | "province">("arequipa");
   const [delivery, setDelivery] = useState("Delivery");
   const [notice, setNotice] = useState("");
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => {
+      setAuthenticated(Boolean(data.session));
+      setSessionReady(true);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthenticated(Boolean(session));
+      setSessionReady(true);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, [supabase]);
   const filteredOrders = useMemo(() => orders.filter((order) => `${order.customer} ${order.product} ${order.id}`.toLowerCase().includes(search.toLowerCase())), [orders, search]);
   const paidTotal = orders.filter((order) => order.paymentStatus === "Pagado").reduce((sum, order) => sum + order.total, 0);
   const pendingTotal = orders.filter((order) => order.paymentStatus === "Pendiente").reduce((sum, order) => sum + order.total, 0);
@@ -33,19 +52,34 @@ export default function Home() {
     setNotice("Pedido guardado correctamente");
     event.currentTarget.reset();
     window.setTimeout(() => setNotice(""), 3500);
-    const supabase = createClient();
     if (supabase) await supabase.from("orders").insert({ order_code: newOrder.id, customer_name: name, dni, product_name: product, quantity, unit_price: price, total: newOrder.total, destination: newOrder.destination, delivery_method: destination === "arequipa" ? delivery : "Envío a provincia", is_custom: productMode === "custom", status: "pending", delivery_status: "pending", payment_status: "pending" });
   };
   const updateOrderStatus = async (orderId: string, kind: "deliveryStatus" | "paymentStatus", value: DeliveryStatus | PaymentStatus) => {
     setOrders((current) => current.map((order) => order.id === orderId ? { ...order, [kind]: value } : order));
-    const supabase = createClient();
     if (supabase) await supabase.from("orders").update({ [kind === "deliveryStatus" ? "delivery_status" : "payment_status"]: value === "Entregado" || value === "Pagado" ? (kind === "deliveryStatus" ? "delivered" : "paid") : "pending" }).eq("order_code", orderId);
   };
+  const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setLoginError("");
+    if (!supabase) {
+      setLoginError("Configura las variables de Supabase para iniciar sesión.");
+      return;
+    }
+    setLoggingIn(true);
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) setLoginError("Correo o contraseña incorrectos.");
+    setLoggingIn(false);
+  };
+  const handleLogout = async () => {
+    if (supabase) await supabase.auth.signOut();
+  };
+  if (!sessionReady) return <div className="auth-loading">Cargando...</div>;
+  if (!authenticated) return <main className="auth-shell"><section className="auth-panel"><div className="brand auth-brand"><span className="brand-mark">g</span><span>giuseppe</span></div><span className="eyebrow">GESTIÓN DE VENTAS</span><h1>Bienvenido de nuevo</h1><p>Ingresa a tu cuenta para controlar tus pedidos y pagos.</p><form className="auth-form" onSubmit={handleLogin}><label>Correo electrónico<input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" required /></label><label>Contraseña<input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" required /></label>{loginError && <div className="auth-error" role="alert">{loginError}</div>}<button className="primary-button auth-submit" type="submit" disabled={loggingIn}>{loggingIn ? "Ingresando..." : "Iniciar sesión"}</button></form></section><div className="auth-accent"><span>g</span><p>Pedidos claros.<br />Decisiones precisas.</p></div></main>;
   return (
     <main className="app-shell">
       <aside className="sidebar"><div className="brand"><span className="brand-mark">g</span><span>giuseppe</span></div><div className="workspace-label">GESTIÓN DE VENTAS</div><nav className="nav-list" aria-label="Navegación principal"><a className="nav-item active" href="#resumen"><ClipboardList size={18} />Resumen</a><a className="nav-item" href="#pedidos"><Package size={18} />Pedidos <span className="nav-count">{orders.length}</span></a><a className="nav-item" href="#clientes"><UserRound size={18} />Clientes</a><a className="nav-item" href="#configuracion"><Settings2 size={18} />Configuración</a></nav><div className="sidebar-bottom"><div className="sync-dot" /><div><strong>Base de datos conectada</strong><span>Supabase · Actualizado</span></div></div></aside>
       <section className="content-area">
-        <header className="topbar"><div><span className="eyebrow">VIERNES, 25 DE SEPTIEMBRE</span><h1 id="resumen">Hola, Giuseppe <span>✦</span></h1></div><div className="top-actions"><button className="icon-button" aria-label="Buscar"><Search size={19} /></button><div className="avatar">G</div></div></header>
+        <header className="topbar"><div><span className="eyebrow">VIERNES, 25 DE SEPTIEMBRE</span><h1 id="resumen">Hola, Giuseppe <span>✦</span></h1></div><div className="top-actions"><button className="icon-button" aria-label="Buscar"><Search size={19} /></button><button className="icon-button" aria-label="Cerrar sesión" onClick={handleLogout}><LogOut size={17} /></button><div className="avatar">G</div></div></header>
         <div className="page-grid"><section className="main-column">
           <div className="stats-grid"><article className="stat-card highlight"><div className="stat-icon"><CreditCard size={18} /></div><span>Ventas registradas</span><strong>{money.format(paidTotal + pendingTotal)}</strong><small><b>{money.format(paidTotal)}</b> cobrado</small></article><article className="stat-card"><div className="stat-icon soft"><ClipboardList size={18} /></div><span>Pedidos registrados</span><strong>{orders.length}</strong><small><b className="ink">{orders.length}</b> en total</small></article><article className="stat-card"><div className="stat-icon pale"><Truck size={18} /></div><span>Por entregar</span><strong>{pendingDeliveryCount}</strong><small><b className="orange">{pendingDeliveryCount}</b> pendientes</small></article></div>
           <div className="section-heading"><div><span className="eyebrow">REGISTRO RÁPIDO</span><h2>Nuevo pedido</h2></div><span className="required-note">* Campos obligatorios</span></div>
