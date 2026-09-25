@@ -25,8 +25,9 @@ export default function Home() {
   const [notice, setNotice] = useState("");
   useEffect(() => {
     if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => {
+    supabase.auth.getSession().then(({ data, error }) => {
       setAuthenticated(Boolean(data.session));
+      if (error) setLoginError("No se pudo conectar con Supabase. Revisa la URL y la clave pública.");
       setSessionReady(true);
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -67,7 +68,11 @@ export default function Home() {
     }
     setLoggingIn(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) setLoginError("Correo o contraseña incorrectos.");
+    if (error) {
+      if (error.message.toLowerCase().includes("api key")) setLoginError("La clave pública de Supabase no es válida para este proyecto.");
+      else if (error.message.toLowerCase().includes("confirmed")) setLoginError("Confirma el correo del usuario en Supabase Auth antes de ingresar.");
+      else setLoginError("Correo o contraseña incorrectos.");
+    }
     setLoggingIn(false);
   };
   const handleLogout = async () => {
