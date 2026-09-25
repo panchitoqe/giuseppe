@@ -7,7 +7,9 @@ import { createClient } from "@/lib/supabase";
 type DeliveryStatus = "Pendiente" | "Entregado";
 type PaymentStatus = "Pendiente" | "Pagado";
 type Order = { id: string; customer: string; product: string; quantity: number; total: number; deliveryStatus: DeliveryStatus; paymentStatus: PaymentStatus; destination: string; date: string };
+type SupabaseOrder = { order_code: string; customer_name: string; product_name: string; quantity: number; total: number; delivery_status: "pending" | "delivered"; payment_status: "pending" | "paid"; destination: string; created_at: string };
 const money = new Intl.NumberFormat("es-PE", { style: "currency", currency: "PEN" });
+const formatOrderDate = (date: string) => new Intl.DateTimeFormat("es-PE", { dateStyle: "short", timeStyle: "short" }).format(new Date(date));
 
 export default function Home() {
   const [supabase] = useState(createClient);
@@ -36,6 +38,13 @@ export default function Home() {
     });
     return () => listener.subscription.unsubscribe();
   }, [supabase]);
+  useEffect(() => {
+    if (!supabase || !authenticated) return;
+    supabase.from("orders").select("order_code, customer_name, product_name, quantity, total, delivery_status, payment_status, destination, created_at").order("created_at", { ascending: false }).then(({ data, error }) => {
+      if (error || !data) return;
+      setOrders((data as SupabaseOrder[]).map((order) => ({ id: order.order_code, customer: order.customer_name, product: order.product_name, quantity: order.quantity, total: Number(order.total), deliveryStatus: order.delivery_status === "delivered" ? "Entregado" : "Pendiente", paymentStatus: order.payment_status === "paid" ? "Pagado" : "Pendiente", destination: order.destination, date: formatOrderDate(order.created_at) })));
+    });
+  }, [authenticated, supabase]);
   const filteredOrders = useMemo(() => orders.filter((order) => `${order.customer} ${order.product} ${order.id}`.toLowerCase().includes(search.toLowerCase())), [orders, search]);
   const paidTotal = orders.filter((order) => order.paymentStatus === "Pagado").reduce((sum, order) => sum + order.total, 0);
   const pendingTotal = orders.filter((order) => order.paymentStatus === "Pendiente").reduce((sum, order) => sum + order.total, 0);
