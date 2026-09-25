@@ -38,10 +38,12 @@ alter table public.orders add constraint orders_delivery_payment_status_check ch
 
 alter table public.orders enable row level security;
 
+drop policy if exists "Allow anonymous order inserts" on public.orders;
 create policy "Allow anonymous order inserts"
 on public.orders for insert
 with check (true);
 
+drop policy if exists "Allow anonymous order reads" on public.orders;
 create policy "Allow anonymous order reads"
 on public.orders for select
 using (true);
