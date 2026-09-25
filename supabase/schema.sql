@@ -3,6 +3,7 @@ create table if not exists public.orders (
   order_code text not null unique,
   customer_name text not null,
   dni text not null,
+  phone text not null default '',
   product_name text not null,
   quantity integer not null check (quantity > 0),
   unit_price numeric(10, 2) not null check (unit_price >= 0),
@@ -22,6 +23,7 @@ alter table public.orders add column if not exists delivery_status text not null
 alter table public.orders add column if not exists payment_status text not null default 'pending';
 alter table public.orders add column if not exists delivery_cost numeric(10, 2) not null default 0;
 alter table public.orders add column if not exists delivery_payment_status text not null default 'pending';
+alter table public.orders add column if not exists phone text not null default '';
 
 update public.orders
 set delivery_status = case when status = 'delivered' then 'delivered' else 'pending' end,
