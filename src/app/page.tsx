@@ -4,11 +4,13 @@ import { FormEvent, useMemo, useState } from "react";
 import { ArrowDownToLine, ChevronDown, CircleCheck, ClipboardList, CreditCard, MapPin, Package, Plus, Search, Send, Settings2, Sparkles, Truck, UserRound } from "lucide-react";
 import { createClient } from "@/lib/supabase";
 
-type Order = { id: string; customer: string; product: string; quantity: number; total: number; status: "Pendiente" | "Pagado"; destination: string; date: string };
+type DeliveryStatus = "Pendiente" | "Entregado";
+type PaymentStatus = "Pendiente" | "Pagado";
+type Order = { id: string; customer: string; product: string; quantity: number; total: number; deliveryStatus: DeliveryStatus; paymentStatus: PaymentStatus; destination: string; date: string };
 const initialOrders: Order[] = [
-  { id: "#GP-1048", customer: "Mariana Salazar", product: "Set Aurora", quantity: 2, total: 118, status: "Pagado", destination: "Arequipa", date: "Hoy, 10:32" },
-  { id: "#GP-1047", customer: "Diego Ramos", product: "Agenda 2025", quantity: 1, total: 42, status: "Pendiente", destination: "Lima", date: "Hoy, 09:18" },
-  { id: "#GP-1046", customer: "Lucía Paredes", product: "Box personalizado", quantity: 3, total: 156, status: "Pagado", destination: "Arequipa", date: "Ayer, 18:44" },
+  { id: "#GP-1048", customer: "Mariana Salazar", product: "Set Aurora", quantity: 2, total: 118, deliveryStatus: "Entregado", paymentStatus: "Pagado", destination: "Arequipa", date: "Hoy, 10:32" },
+  { id: "#GP-1047", customer: "Diego Ramos", product: "Agenda 2025", quantity: 1, total: 42, deliveryStatus: "Pendiente", paymentStatus: "Pendiente", destination: "Lima", date: "Hoy, 09:18" },
+  { id: "#GP-1046", customer: "Lucía Paredes", product: "Box personalizado", quantity: 3, total: 156, deliveryStatus: "Pendiente", paymentStatus: "Pagado", destination: "Arequipa", date: "Ayer, 18:44" },
 ];
 const money = new Intl.NumberFormat("es-PE", { style: "currency", currency: "PEN" });
 
@@ -28,13 +30,18 @@ export default function Home() {
     const product = String(form.get("product") || "Producto sin nombre");
     const quantity = Number(form.get("quantity") || 1);
     const price = Number(form.get("price") || 0);
-    const newOrder: Order = { id: `#GP-${1050 + orders.length}`, customer: name, product, quantity, total: quantity * price, status: "Pendiente", destination: destination === "arequipa" ? "Arequipa" : "Provincia", date: "Ahora" };
+    const newOrder: Order = { id: `#GP-${1050 + orders.length}`, customer: name, product, quantity, total: quantity * price, deliveryStatus: "Pendiente", paymentStatus: "Pendiente", destination: destination === "arequipa" ? "Arequipa" : "Provincia", date: "Ahora" };
     setOrders((current) => [newOrder, ...current]);
     setNotice("Pedido guardado correctamente");
     event.currentTarget.reset();
     window.setTimeout(() => setNotice(""), 3500);
     const supabase = createClient();
-    if (supabase) await supabase.from("orders").insert({ order_code: newOrder.id, customer_name: name, dni, product_name: product, quantity, unit_price: price, total: newOrder.total, destination: newOrder.destination, delivery_method: destination === "arequipa" ? delivery : "Envío a provincia", is_custom: productMode === "custom", status: "pending" });
+    if (supabase) await supabase.from("orders").insert({ order_code: newOrder.id, customer_name: name, dni, product_name: product, quantity, unit_price: price, total: newOrder.total, destination: newOrder.destination, delivery_method: destination === "arequipa" ? delivery : "Envío a provincia", is_custom: productMode === "custom", status: "pending", delivery_status: "pending", payment_status: "pending" });
+  };
+  const updateOrderStatus = async (orderId: string, kind: "deliveryStatus" | "paymentStatus", value: DeliveryStatus | PaymentStatus) => {
+    setOrders((current) => current.map((order) => order.id === orderId ? { ...order, [kind]: value } : order));
+    const supabase = createClient();
+    if (supabase) await supabase.from("orders").update({ [kind === "deliveryStatus" ? "delivery_status" : "payment_status"]: value === "Entregado" || value === "Pagado" ? (kind === "deliveryStatus" ? "delivered" : "paid") : "pending" }).eq("order_code", orderId);
   };
   return (
     <main className="app-shell">
@@ -51,7 +58,7 @@ export default function Home() {
             <div className="form-footer"><span><CircleCheck size={16} />Se guardará como pedido pendiente</span><button className="primary-button" type="submit"><Plus size={17} />Guardar pedido</button></div>
           </form>
           <div className="section-heading orders-heading" id="pedidos"><div><span className="eyebrow">HISTORIAL</span><h2>Pedidos recientes</h2></div><button className="export-button"><ArrowDownToLine size={16} />Exportar</button></div>
-          <div className="orders-panel"><div className="table-toolbar"><div className="search-box"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar pedido o cliente" /></div><button className="filter-button">Todos los estados <ChevronDown size={15} /></button></div><div className="table-scroll"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Producto</th><th>Total</th><th>Estado</th><th>Fecha</th></tr></thead><tbody>{filteredOrders.map((order) => <tr key={order.id}><td className="order-code">{order.id}</td><td><strong>{order.customer}</strong><span className="table-subtitle">{order.destination}</span></td><td>{order.product} <span className="quantity">× {order.quantity}</span></td><td className="total-cell">{money.format(order.total)}</td><td><span className={`status ${order.status === "Pagado" ? "paid" : "pending"}`}>{order.status}</span></td><td className="date-cell">{order.date}</td></tr>)}</tbody></table></div></div>
+          <div className="orders-panel"><div className="table-toolbar"><div className="search-box"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar pedido o cliente" /></div><button className="filter-button">Todos los estados <ChevronDown size={15} /></button></div><div className="table-scroll"><table><thead><tr><th>Pedido</th><th>Cliente</th><th>Producto</th><th>Total</th><th>Entrega</th><th>Pago</th><th>Fecha</th></tr></thead><tbody>{filteredOrders.map((order) => <tr key={order.id}><td className="order-code">{order.id}</td><td><strong>{order.customer}</strong><span className="table-subtitle">{order.destination}</span></td><td>{order.product} <span className="quantity">× {order.quantity}</span></td><td className="total-cell">{money.format(order.total)}</td><td><select className={`status-select ${order.deliveryStatus === "Entregado" ? "paid" : "pending"}`} value={order.deliveryStatus} onChange={(event) => updateOrderStatus(order.id, "deliveryStatus", event.target.value as DeliveryStatus)} aria-label={`Estado de entrega de ${order.id}`}><option>Pendiente</option><option>Entregado</option></select></td><td><select className={`status-select ${order.paymentStatus === "Pagado" ? "paid" : "pending"}`} value={order.paymentStatus} onChange={(event) => updateOrderStatus(order.id, "paymentStatus", event.target.value as PaymentStatus)} aria-label={`Estado de pago de ${order.id}`}><option>Pendiente</option><option>Pagado</option></select></td><td className="date-cell">{order.date}</td></tr>)}</tbody></table></div></div>
         </section><aside className="right-rail"><div className="rail-header"><span className="eyebrow">ESTE MES</span><h2>Resumen de pagos</h2></div><div className="donut-wrap"><div className="donut"><div className="donut-center"><strong>76%</strong><span>cobrado</span></div></div></div><div className="payment-legend"><div><span className="legend-dot paid-dot" /><span>Pagado</span><strong>S/ 1,384</strong></div><div><span className="legend-dot pending-dot" /><span>Pendiente</span><strong>S/ 440</strong></div></div><div className="rail-divider" /><div className="tip"><div className="tip-icon"><Sparkles size={17} /></div><div><strong>Un buen comienzo</strong><p>Ya tienes 38 pedidos este mes. Sigue así, Giuseppe.</p></div></div></aside></div>
         {notice && <div className="toast"><CircleCheck size={17} />{notice}</div>}
       </section>

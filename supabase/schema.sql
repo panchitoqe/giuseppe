@@ -11,8 +11,22 @@ create table if not exists public.orders (
   delivery_method text not null,
   is_custom boolean not null default false,
   status text not null default 'pending' check (status in ('pending', 'paid', 'delivered', 'cancelled')),
+  delivery_status text not null default 'pending' check (delivery_status in ('pending', 'delivered')),
+  payment_status text not null default 'pending' check (payment_status in ('pending', 'paid')),
   created_at timestamptz not null default now()
 );
+
+alter table public.orders add column if not exists delivery_status text not null default 'pending';
+alter table public.orders add column if not exists payment_status text not null default 'pending';
+
+update public.orders
+set delivery_status = case when status = 'delivered' then 'delivered' else 'pending' end,
+    payment_status = case when status = 'paid' then 'paid' else 'pending' end;
+
+alter table public.orders drop constraint if exists orders_delivery_status_check;
+alter table public.orders add constraint orders_delivery_status_check check (delivery_status in ('pending', 'delivered'));
+alter table public.orders drop constraint if exists orders_payment_status_check;
+alter table public.orders add constraint orders_payment_status_check check (payment_status in ('pending', 'paid'));
 
 alter table public.orders enable row level security;
 
