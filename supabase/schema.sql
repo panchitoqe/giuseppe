@@ -47,3 +47,9 @@ drop policy if exists "Allow anonymous order reads" on public.orders;
 create policy "Allow anonymous order reads"
 on public.orders for select
 using (true);
+
+drop policy if exists "Allow anonymous order updates" on public.orders;
+create policy "Allow anonymous order updates"
+on public.orders for update
+using (true)
+with check (true);

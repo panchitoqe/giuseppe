@@ -71,7 +71,10 @@ export default function Home() {
     setOrders((current) => current.map((order) => order.id === orderId ? { ...order, [kind]: value } : order));
     const field = kind === "deliveryStatus" ? "delivery_status" : kind === "paymentStatus" ? "payment_status" : "delivery_payment_status";
     const statusValue = value === "Entregado" ? "delivered" : value === "Pagado" ? "paid" : "pending";
-    if (supabase) await supabase.from("orders").update({ [field]: statusValue }).eq("order_code", orderId);
+    if (supabase) {
+      const { error } = await supabase.from("orders").update({ [field]: statusValue }).eq("order_code", orderId);
+      if (error) setNotice("No se pudo actualizar el estado. Revisa las políticas de Supabase.");
+    }
   };
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
